@@ -1,0 +1,54 @@
+{
+  "name": "football-score",
+  "version": "1.0.0",
+  "description": "Football score - ทำนายสกอร์จากข้อมูลจริง",
+  "author": "Football score",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --publish never"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.footballscore.app",
+    "productName": "Football score",
+    "files": [
+      "main.js",
+      "preload.js",
+      "Football-score.html",
+      "config.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "Football-score-Windows.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false
+    },
+    "mac": {
+      "category": "public.app-category.sports",
+      "identity": null,
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "artifactName": "Football-score-Mac-${arch}.${ext}"
+    }
+  }
+}

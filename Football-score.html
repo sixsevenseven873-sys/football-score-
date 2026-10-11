@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="th"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Football score</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Prompt:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#010a03;--panel:#04140a;--g:#00ff41;--g2:#00b32c;--dim:#0b5a22;--amb:#ffd23f;--red:#ff3b5c;color-scheme:dark}
+*{box-sizing:border-box}html,body{margin:0;background:var(--bg);color:var(--g);font:16px 'Share Tech Mono','Prompt',monospace}
+.wrap{max-width:900px;margin:0 auto;padding:16px}
+.term{border:1px solid var(--g2);background:var(--panel);margin-bottom:16px;box-shadow:0 0 18px rgba(0,255,65,.15)}
+.bar{padding:6px 10px;border-bottom:1px solid var(--dim);color:var(--g2);font-size:12px}.in{padding:14px}
+h1{margin:0;font-size:30px;text-shadow:0 0 10px var(--g)}.dim{color:var(--g2)}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+button{font:inherit;color:inherit;cursor:pointer}.tabs button{background:none;border:1px solid var(--g2);padding:8px 12px;min-height:44px}.tabs .on{background:var(--g);color:#001a07}
+select{width:100%;font:inherit;font-size:16px;background:#000;color:var(--g);border:1px solid var(--g2);padding:10px}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}.card{border:1px solid var(--dim);padding:10px;min-height:60px}
+.card img{width:56px;height:56px;object-fit:contain}.card b{font-size:18px}
+.chip{display:inline-block;width:24px;height:24px;line-height:24px;text-align:center;margin-right:3px;color:#001a07;font-weight:700}
+.W{background:var(--g)}.D{background:var(--amb)}.L{background:var(--red)}
+.run{width:100%;margin-top:12px;background:var(--g);color:#001a07;border:0;padding:13px;font-size:17px;font-weight:700;min-height:44px}.run:disabled{background:var(--dim);color:#06330f}
+.bars{height:10px;background:#02200d;margin-top:8px}.bars i{display:block;height:100%;width:0;background:var(--g);transition:width 10s linear}
+.big{font-size:38px;text-align:center;margin:8px 0}.row{display:flex;justify-content:space-between;margin:4px 0}
+.note{font-size:12px;color:var(--g2);margin-top:10px}pre{white-space:pre-wrap;margin:6px 0;font:inherit}
+@media(max-width:560px){.two{grid-template-columns:1fr}}
+</style></head><body><div class="wrap">
+<div class="term"><div class="bar">root@football_score:~</div><div class="in"><h1>FOOTBALL_SCORE</h1>
+<div class="dim" id="st">&gt; เลือกลีก</div><div id="keybox" style="margin-top:8px"></div></div></div>
+<div class="term"><div class="bar">live_data.exe</div><div class="in">
+<div class="tabs" id="tabs"></div>
+<div class="two"><select id="a" aria-label="ทีมเหย้า"></select><select id="b" aria-label="ทีมเยือน"></select></div>
+<div class="two" id="cards" style="margin-top:12px"></div>
+<button class="run" id="go" disabled>&gt; วิเคราะห์และทำนายสกอร์</button>
+<div id="out"></div></div></div></div>
+<script>
+const $=s=>document.querySelector(s),LG={PL:'พรีเมียร์ลีก',PD:'ลาลิกา',BL1:'บุนเดสลีกา',FL1:'ลีกเอิง'};
+const E=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let D=null,T=[null,null];
+$('#tabs').innerHTML=Object.keys(LG).map(k=>`<button data-k="${k}">${LG[k]}</button>`).join('');
+document.querySelectorAll('#tabs button').forEach(b=>b.onclick=()=>load(b.dataset.k));
+/*GL*/
+const KEY=()=>{try{return localStorage.getItem('fs_key')||''}catch(e){return ''}};
+async function api(path){
+  if(!KEY()&&!window.fsApi)throw new Error('ยังไม่ได้ใส่คีย์ API');
+  let status,text;
+  try{
+    if(window.fsApi){const o=await window.fsApi(path,KEY());status=o.status;text=o.body}
+    else{const BASE=location.protocol==='file:'?'https://api.football-data.org/v4':'/proxy/v4';
+      const r=await fetch(BASE+path,{headers:{'X-Auth-Token':KEY()}});status=r.status;text=await r.text()}
+  }catch(e){throw new Error('เชื่อมต่อไม่ได้ ตรวจอินเทอร์เน็ต')}
+  if(status===429)throw new Error('เรียกข้อมูลถี่เกินโควต้าฟรี รอ 1 นาทีแล้วลองใหม่');
+  if(status===403||status===401)throw new Error('คีย์ API ไม่ถูกต้องหรือไม่รองรับลีกนี้');
+  if(status<200||status>=300)throw new Error('ดึงข้อมูลไม่สำเร็จ ('+status+')');
+  return JSON.parse(text);
+}
+async function getLeague(code){
+  try{const c=JSON.parse(localStorage.getItem('fs_c_'+code));if(c&&Date.now()-c.t<30*60*1000)return c.d}catch(e){}
+  const [st,mt,sc,tm]=await Promise.all([api(`/competitions/${code}/standings`),api(`/competitions/${code}/matches?status=FINISHED`),api(`/competitions/${code}/scorers?limit=300`),api(`/competitions/${code}/teams`)]);
+  const table=(st.standings.find(x=>x.type==='TOTAL')||st.standings[0]).table;
+  const ms=mt.matches.filter(m=>m.score&&m.score.fullTime.home!=null).sort((a,b)=>new Date(b.utcDate)-new Date(a.utcDate));
+  let hg=0,ag=0;ms.forEach(m=>{hg+=m.score.fullTime.home;ag+=m.score.fullTime.away});const n=Math.max(1,ms.length);
+  const coach={};tm.teams.forEach(t=>coach[t.id]=t.coach&&t.coach.name);
+  const teams=table.map(r=>{const id=r.team.id,form=[];
+    for(const m of ms){if(form.length>=5)break;const h=m.homeTeam.id===id;if(!h&&m.awayTeam.id!==id)continue;
+      const gf=h?m.score.fullTime.home:m.score.fullTime.away,ga=h?m.score.fullTime.away:m.score.fullTime.home;
+      form.push({r:gf>ga?'W':gf===ga?'D':'L',gf,ga,opp:(h?m.awayTeam:m.homeTeam).shortName})}
+    const scorers=sc.scorers.filter(x=>x.team.id===id).slice(0,6).map(x=>{const pm=x.playedMatches||1,g=x.goals||0,a=x.assists||0;
+      return{n:x.player.name,g,a,pm,pen:x.penalties||0,r:Math.round(55+44*Math.min(1,(g+a)/pm/1.2))}});
+    return{id,name:r.team.shortName||r.team.name,crest:r.team.crest,pos:r.position,p:r.playedGames,w:r.won,d:r.draw,l:r.lost,pts:r.points,gf:r.goalsFor,ga:r.goalsAgainst,form,coach:coach[id]||null,scorers}});
+  const d={league:code,season:st.season&&st.season.startDate.slice(0,4),updated:new Date().toISOString(),avg:{home:hg/n,away:ag/n,team:(hg+ag)/(2*n)},teams};
+  try{localStorage.setItem('fs_c_'+code,JSON.stringify({t:Date.now(),d}))}catch(e){}
+  return d;
+}
+function showKey(msg){
+  $('#keybox').innerHTML=`<div class="dim">${msg||'ใส่ครั้งเดียวก็ใช้ได้เลย: 1) กดลิงก์ด้านล่างเพื่อสมัครคีย์ฟรี (ใช้เวลา 1 นาที) 2) เปิดอีเมลแล้วคัดลอกรหัส 3) วางในช่องนี้'}</div><div style="margin-top:4px"><a href="https://www.football-data.org/client/register" target="_blank" rel="noopener" style="color:var(--amb)">สมัครคีย์ฟรีที่นี่</a></div><div style="display:flex;gap:8px;margin-top:6px"><input id="kin" placeholder="API token" style="flex:1;font:inherit;font-size:16px;background:#000;color:var(--g);border:1px solid var(--g2);padding:10px"><button class="tabs" style="background:var(--g);color:#001a07;border:0;padding:0 16px;font-weight:700" id="ksave">บันทึก</button></div>`;
+  $('#ksave').onclick=()=>{const v=$('#kin').value.trim();if(!v)return;try{localStorage.setItem('fs_key',v)}catch(e){}$('#keybox').innerHTML='<button id="kchg" style="background:none;border:0;color:var(--g2);text-decoration:underline;cursor:pointer;font:inherit">เปลี่ยนคีย์</button>';$('#kchg').onclick=()=>showKey();load(cur)};
+}
+/*ENDGL*/
+let cur='PL';
+async function load(k){cur=k;
+  document.querySelectorAll('#tabs button').forEach(b=>b.className=b.dataset.k===k?'on':'');
+  $('#st').textContent='> กำลังโหลดข้อมูลจริง...';$('#out').innerHTML='';T=[null,null];
+  try{D=await getLeague(k)}
+  catch(e){$('#st').textContent='โหลดไม่สำเร็จ: '+e.message;if(/คีย์/.test(e.message))showKey(e.message);return}
+  $('#st').textContent='ข้อมูลจริงอัปเดตล่าสุด '+new Date(D.updated).toLocaleString('th-TH')+' · ฤดูกาล '+D.season;
+  const o='<option value="">เลือกทีม</option>'+D.teams.map(t=>`<option value="${t.id}">${t.pos}. ${E(t.name)}</option>`).join('');
+  ['a','b'].forEach((i,n)=>{$('#'+i).innerHTML=o;$('#'+i).onchange=e=>{T[n]=D.teams.find(t=>t.id==e.target.value)||null;show()}});show();
+}
+const chips=f=>f.map(x=>`<span class="chip ${x.r}" title="${E(x.opp)} ${x.gf}-${x.ga}">${x.r}</span>`).join('')||'-';
+function show(){
+  $('#out').innerHTML='';$('#go').disabled=!(T[0]&&T[1]&&T[0]!==T[1]);
+  $('#cards').innerHTML=T.map(t=>t?`<div class="card"><img src="${E(t.crest)}" alt=""><br><b>${E(t.name)}</b>
+  <div>อันดับ ${t.pos} · ${t.w}-${t.d}-${t.l} · ${t.pts} แต้ม · ยิง ${t.gf} เสีย ${t.ga}</div>
+  <div style="margin:6px 0">${chips(t.form)}</div><div class="dim">โค้ช: ${E(t.coach||'ไม่มีข้อมูล')}</div>
+  <div class="dim" style="margin-top:4px">ฟอร์มนักเตะ (ข้อมูลจริงฤดูกาลนี้)</div>${t.scorers.map(s=>`<div style="font-size:13px">${E(s.n)} · ${s.g} ประตู ${s.a} แอสซิสต์ · ลง ${s.pm} นัด · ฟอร์ม <b>${s.r}</b></div>`).join('')||'<div class="dim">ยังไม่มีข้อมูล</div>'}</div>`:'<div class="card dim">[ ? ] เลือกทีม</div>').join('');
+}
+const pm=(k,l)=>{let f=1;for(let i=2;i<=k;i++)f*=i;return Math.exp(-l)*Math.pow(l,k)/f};
+function model(a,b){
+  const g=D.avg,K=4,att=t=>((t.gf+K*g.team)/(t.p+K))/g.team,def=t=>((t.ga+K*g.team)/(t.p+K))/g.team;
+  const fm=t=>t.form.length?(t.form.reduce((s,x)=>s+(x.r==='W'?3:x.r==='D'?1:0),0)/t.form.length-1.35)*.06:0;
+  const lh=g.home*att(a)*def(b)*(1+fm(a)),la=g.away*att(b)*def(a)*(1+fm(b));
+  let w=0,d=0,l=0,best=[0,0,0];
+  for(let i=0;i<9;i++)for(let j=0;j<9;j++){const p=pm(i,lh)*pm(j,la);i>j?w+=p:i===j?d+=p:l+=p;if(p>best[2])best=[i,j,p]}
+  const s=w+d+l;return{lh,la,w:w/s,d:d/s,l:l/s,sc:best}
+}
+const pl=t=>t.scorers[0]?`${E(t.scorers[0].n)} ${t.scorers[0].g} ประตู ${t.scorers[0].a} แอสซิสต์ใน ${t.scorers[0].pm} นัด`:'ไม่มีข้อมูล';
+const avgF=t=>t.form.length?[t.form.reduce((s,x)=>s+x.gf,0)/t.form.length,t.form.reduce((s,x)=>s+x.ga,0)/t.form.length]:[0,0];
+$('#go').onclick=async()=>{
+  const[a,b]=T,r=model(a,b),go=$('#go');go.disabled=true;
+  const steps=['โหลดตารางคะแนนและผลการแข่งจริงของลีก','คำนวณพลังรุก-รับจากประตูที่ยิง/เสียในฤดูกาลนี้','วิเคราะห์ฟอร์ม 5 นัดหลังสุดของทั้งสองทีม','ตรวจโค้ชและตัวทำประตูเด่น','จำลองความน่าจะเป็นของทุกสกอร์','สรุปสกอร์ที่น่าจะเป็นที่สุด'];
+  $('#out').innerHTML='<div id="lg"></div><div class="bars"><i id="pb"></i></div>';
+  requestAnimationFrame(()=>requestAnimationFrame(()=>$('#pb').style.width='100%'));
+  steps.forEach((t,i)=>setTimeout(()=>{$('#lg').innerHTML+=`<div>&gt; ${t}${i<5?'...':' ✔'}</div>`},i*1700));
+  await new Promise(f=>setTimeout(f,10000));
+  const fa=avgF(a),fb=avgF(b),pc=x=>Math.round(x*100)+'%';
+  const lead=r.w>r.l+.1?a.name:r.l>r.w+.1?b.name:null;
+  $('#out').innerHTML=`<div class="big">${E(a.name)} ${r.sc[0]} - ${r.sc[1]} ${E(b.name)}</div>
+  <div class="row"><span>${E(a.name)} ชนะ ${pc(r.w)}</span><span>เสมอ ${pc(r.d)}</span><span>${E(b.name)} ชนะ ${pc(r.l)}</span></div>
+  <div class="row dim"><span>ประตูคาดหวัง ${r.lh.toFixed(2)}</span><span>${r.la.toFixed(2)}</span></div>
+  <pre>• ฟอร์ม 5 นัดล่าสุด ${E(a.name)}: ยิงเฉลี่ย ${fa[0].toFixed(1)} เสียเฉลี่ย ${fa[1].toFixed(1)}
+• ฟอร์ม 5 นัดล่าสุด ${E(b.name)}: ยิงเฉลี่ย ${fb[0].toFixed(1)} เสียเฉลี่ย ${fb[1].toFixed(1)}
+• ฤดูกาลนี้ ${E(a.name)} ยิง ${(a.gf/a.p).toFixed(2)}/เสีย ${(a.ga/a.p).toFixed(2)} ต่อนัด ส่วน ${E(b.name)} ยิง ${(b.gf/b.p).toFixed(2)}/เสีย ${(b.ga/b.p).toFixed(2)}
+• ตัวเด่น ${E(a.name)}: ${pl(a)} | ${E(b.name)}: ${pl(b)}
+• ${lead?E(lead)+' ได้เปรียบจากตัวเลขรุก-รับและฟอร์ม':'สองทีมสูสีมาก โอกาสเสมอสูง'}</pre>
+  <div class="note">คำนวณจากผลจริงของลีกด้วยโมเดล Poisson (ประตูของทีมคือผลรวมของฟอร์มนักเตะจริงอยู่แล้ว) คะแนนฟอร์มนักเตะมาจากประตู+แอสซิสต์ต่อนัดของผู้เล่นในลิสต์ผู้ทำประตูของลีก กองหลังและผู้รักษาประตูไม่มีสถิติรายคนจาก API นี้ ไม่ได้รวมข่าวบาดเจ็บ ตัวพักโทษ หรือแทคติกเฉพาะนัด ผลคือความน่าจะเป็น ไม่ใช่คำตอบแน่นอน</div>`;
+  go.disabled=false;
+};
+async function refresh(){
+  if(!D||document.hidden)return;
+  try{const n=await getLeague(cur);
+    D=n;T=T.map(t=>t&&D.teams.find(x=>x.id===t.id)||null);
+    $('#st').textContent='ข้อมูลจริงอัปเดตล่าสุด '+new Date(D.updated).toLocaleString('th-TH')+' · ฤดูกาล '+D.season;
+    if(!$('#lg'))show()}catch(e){}
+}
+setInterval(refresh,10*60*1000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)refresh()});
+if(KEY()||window.fsApi)load('PL');else{$('#st').textContent='> ยังไม่ได้ใส่คีย์ API';showKey()}
+</script></body></html>
